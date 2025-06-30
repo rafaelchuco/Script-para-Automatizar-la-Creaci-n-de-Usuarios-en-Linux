@@ -59,47 +59,57 @@ mostrar_error() {
 }
 
 # --- 1. Verificación de privilegios de superusuario (root) ---
-# El script debe ser ejecutado con `sudo` para tener los permisos necesarios.
 if [[ $(id -u) -ne 0 ]]; then
    mostrar_error "Este script debe ser ejecutado como root o con sudo."
    exit 1
 fi
 
-# --- 2. Solicitar información del nuevo usuario de forma interactiva ---
+# --- 2. Solicitar información del nuevo usuario ---
 mostrar_info "Iniciando el proceso de creación de nuevo usuario."
 read -p "Introduce el nombre de usuario (ej: jlopez): " USERNAME
 read -p "Introduce el nombre completo (ej: Juan Lopez): " FULLNAME
 read -p "Introduce el grupo secundario (ej: desarrolladores, ventas): " SECONDARY_GROUP
 
-# Validar que los campos no estén vacíos para evitar errores.
+# Validar campos
 if [[ -z "$USERNAME" ]] || [[ -z "$FULLNAME" ]] || [[ -z "$SECONDARY_GROUP" ]]; then
     mostrar_error "Todos los campos son obligatorios. Abortando."
     exit 1
 fi
 
-# --- 3. Creación de Usuario y Grupos (Semana 11) ---
+# --- 3. Creación de Usuario y Grupos ---
 mostrar_info "Creando usuario y grupos..."
 
-# Verificar si el grupo secundario existe. Si no, lo crea.
+# Verificar si el grupo secundario existe
 if ! getent group "$SECONDARY_GROUP" > /dev/null; then
     mostrar_info "El grupo secundario '$SECONDARY_GROUP' no existe. Creándolo..."
     groupadd "$SECONDARY_GROUP"
     if [[ $? -eq 0 ]]; then
-        mostrar_ok "Grupo '$SECONDARY_GROUP' creado con éxito."
+        mostrar_ok "Grupo secundario '$SECONDARY_GROUP' creado con éxito."
     else
         mostrar_error "No se pudo crear el grupo '$SECONDARY_GROUP'."
         exit 1
     fi
 fi
 
-# Verificar si el usuario ya existe para no sobrescribir nada.
+# Verificar si el usuario ya existe
 if id "$USERNAME" &>/dev/null; then
     mostrar_error "El usuario '$USERNAME' ya existe. Abortando."
     exit 1
 fi
 
-# Crear el usuario con su grupo primario homónimo, su directorio home (-m),
-# un comentario (-c) y asignarlo a su grupo primario (-g) y secundario (-G).
+# Verificar si el grupo primario existe
+if ! getent group "$USERNAME" > /dev/null; then
+    mostrar_info "El grupo primario '$USERNAME' no existe. Creándolo..."
+    groupadd "$USERNAME"
+    if [[ $? -eq 0 ]]; then
+        mostrar_ok "Grupo primario '$USERNAME' creado con éxito."
+    else
+        mostrar_error "No se pudo crear el grupo primario '$USERNAME'."
+        exit 1
+    fi
+fi
+
+# Crear usuario
 useradd -m -c "$FULLNAME" -g "$USERNAME" -G "$SECONDARY_GROUP" "$USERNAME"
 if [[ $? -eq 0 ]]; then
     mostrar_ok "Usuario '$USERNAME' creado y añadido al grupo '$SECONDARY_GROUP'."
@@ -108,26 +118,21 @@ else
     exit 1
 fi
 
-# --- 4. Crear estructura de directorios estándar (Semana 10) ---
+# --- 4. Crear estructura de directorios ---
 mostrar_info "Creando estructura de directorios en /home/$USERNAME..."
 HOME_DIR="/home/$USERNAME"
 DIRECTORIES=("Documentos" "Proyectos" "Privado")
 
 for DIR in "${DIRECTORIES[@]}"; do
     mkdir -p "$HOME_DIR/$DIR"
-    # Cambiar propietario y grupo para que pertenezcan al nuevo usuario.
     chown -R "$USERNAME":"$USERNAME" "$HOME_DIR/$DIR"
 done
 
-# Asignar permisos especiales al directorio Privado (solo el usuario puede acceder).
-# Permisos 700: rwx------ (lectura, escritura y ejecución solo para el propietario).
 chmod 700 "$HOME_DIR/Privado"
-
 mostrar_ok "Estructura de directorios creada y permisos asignados."
 
-# --- 5. Generar y asignar contraseña temporal segura ---
+# --- 5. Generar y asignar contraseña ---
 mostrar_info "Generando contraseña temporal segura..."
-# Genera una contraseña aleatoria de 16 caracteres.
 PASSWORD=$(openssl rand -base64 12)
 
 echo "$USERNAME:$PASSWORD" | chpasswd
@@ -135,12 +140,13 @@ if [[ $? -eq 0 ]]; then
     mostrar_ok "Contraseña temporal asignada con éxito."
 else
     mostrar_error "No se pudo asignar la contraseña."
+    exit 1
 fi
 
-# Forzar al usuario a cambiar la contraseña en el primer inicio de sesión.
+# Forzar cambio de contraseña
 chage -d 0 "$USERNAME"
 
-# --- 6. Crear mensaje de bienvenida personalizado ---
+# --- 6. Mensaje de bienvenida ---
 WELCOME_FILE="$HOME_DIR/bienvenido.txt"
 mostrar_info "Creando archivo de bienvenida en $WELCOME_FILE"
 cat > "$WELCOME_FILE" << EOL
@@ -152,22 +158,21 @@ Aquí están tus credenciales iniciales:
 Nombre de Usuario: $USERNAME
 Contraseña Temporal: $PASSWORD
 
-IMPORTANTE: Por razones de seguridad, se te pedirá que cambies esta contraseña
+IMPORTANTE: Por seguridad, se te pedirá que cambies esta contraseña
 en tu primer inicio de sesión.
 
-Tu estructura de directorios es:
-~/Documentos: Para archivos generales.
-~/Proyectos: Para tus proyectos de trabajo.
-~/Privado: Un directorio al que solo tú tienes acceso.
+Tu estructura de directorios:
+~/Documentos: Archivos generales.
+~/Proyectos: Proyectos de trabajo.
+~/Privado: Acceso solo para ti.
 
 ¡Que tengas un gran día!
 EOL
 
-# Asignar el archivo de bienvenida al nuevo usuario.
 chown "$USERNAME":"$USERNAME" "$WELCOME_FILE"
 mostrar_ok "Archivo de bienvenida creado."
 
-# --- 7. Resumen final para el administrador ---
+# --- 7. Resumen final ---
 echo ""
 mostrar_ok "¡PROCESO COMPLETADO!"
 echo "--------------------------------------------------"
@@ -180,6 +185,7 @@ echo "   Contraseña Temp:   $PASSWORD"
 echo "--------------------------------------------------"
 echo "El usuario deberá cambiar esta contraseña en su primer login."
 echo ""
+
 ```
 
 ### Paso 2: Otorgar Permisos de Ejecución
